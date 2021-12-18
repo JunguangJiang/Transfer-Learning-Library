@@ -247,6 +247,7 @@ if __name__ == '__main__':
                         default=(0.485, 0.456, 0.406), help='normalization mean')
     parser.add_argument('--norm-std', type=float, nargs='+',
                         default=(0.229, 0.224, 0.225), help='normalization std')
+    parser.add_argument('--metric', default='acc_avg', help='The evaluation metric')
     # model parameters
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                         choices=utils.get_model_names(),

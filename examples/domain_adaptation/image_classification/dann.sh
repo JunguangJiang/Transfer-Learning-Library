@@ -79,7 +79,7 @@ CUDA_VISIBLE_DEVICES=0 python dann.py data/wilds -d iwildcam -a resnet50 --epoch
 # DenseNet121, Wilds Dataset
 CUDA_VISIBLE_DEVICES=0 python dann.py data/wilds -d camelyon17 --train-resizing 'res.' --val-resizing 'res.' --resize-size 96 \
   -a densenet121 --scratch --epochs 10 -i 1000 --lr 0.01 --seed 0 --log logs/dann/camelyon17
-CUDA_VISIBLE_DEVICES=0 python dann.py data/wilds -d fmow --train-resizing 'res.' --val-resizing 'res.' \
+CUDA_VISIBLE_DEVICES=5 python dann.py data/wilds -d fmow -t test_unlabeled --train-resizing 'res.' --val-resizing 'res.' \
   -a densenet121 --epochs 10 -i 1000 --lr 0.01 --seed 0 --log logs/dann/fmow
 
 # Digits

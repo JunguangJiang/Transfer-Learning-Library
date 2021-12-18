@@ -83,7 +83,7 @@ CUDA_VISIBLE_DEVICES=0 python mdd.py data/wilds -d iwildcam --train-resizing 're
 # DenseNet121, Wilds Dataset
 CUDA_VISIBLE_DEVICES=0 python mdd.py data/wilds -d camelyon17 --train-resizing 'res.' --val-resizing 'res.' --resize-size 96 \
   -a densenet121 --scratch --epochs 30 -i 1000 --lr 0.01 --seed 0 --log logs/mdd/camelyon17
-CUDA_VISIBLE_DEVICES=0 python mdd.py data/wilds -d fmow --train-resizing 'res.' --val-resizing 'res.' \
+CUDA_VISIBLE_DEVICES=0 python mdd.py data/wilds -d fmow -t test_unlabeled --train-resizing 'res.' --val-resizing 'res.' --metric acc_worst_region \
   -a densenet121 --bottleneck-dim 2048 --epochs 30 -i 1000 --lr 0.01 --seed 0 --log logs/mdd/fmow
 
 # Digits

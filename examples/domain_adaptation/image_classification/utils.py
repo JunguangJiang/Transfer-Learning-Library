@@ -12,6 +12,8 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from torch.utils.data import ConcatDataset
 import wilds
+import tqdm
+import pprint
 
 sys.path.append('../../..')
 import common.vision.datasets as datasets
@@ -97,60 +99,110 @@ def get_dataset(dataset_name, root, source, target, train_source_transform, val_
         num_classes = len(class_names)
     else:
         # load datasets from wilds
-        dataset = wilds.get_dataset(dataset_name, root_dir=root, download=True)
-        num_classes = dataset.n_classes
+        labeled_dataset = wilds.get_dataset(dataset_name, root_dir=root, download=True)
+        unlabeled_dataset = wilds.get_dataset(dataset_name, root_dir=root, download=True, unlabeled=True)
+        num_classes = labeled_dataset.n_classes
         class_names = None
-        train_source_dataset = convert_from_wilds_dataset(dataset.get_subset('train', transform=train_source_transform))
-        train_target_dataset = convert_from_wilds_dataset(dataset.get_subset('test', transform=train_target_transform))
-        val_dataset = test_dataset = convert_from_wilds_dataset(dataset.get_subset('test', transform=val_transform))
+        train_source_dataset = convert_from_wilds_dataset(labeled_dataset.get_subset('train', transform=train_source_transform))
+        train_target_dataset = unlabeled_dataset.get_subset(target[0], transform=train_target_transform)
+        val_dataset = labeled_dataset.get_subset('val', transform=val_transform)
+        test_dataset = labeled_dataset.get_subset('test', transform=val_transform)
     return train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, class_names
 
 
 def validate(val_loader, model, args, device) -> float:
-    batch_time = AverageMeter('Time', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    progress = ProgressMeter(
-        len(val_loader),
-        [batch_time, losses, top1],
-        prefix='Test: ')
+    if args.metric == "acc_avg":
+        # calculate the average accuracy
+        batch_time = AverageMeter('Time', ':6.3f')
+        losses = AverageMeter('Loss', ':.4e')
+        top1 = AverageMeter('Acc@1', ':6.2f')
+        progress = ProgressMeter(
+            len(val_loader),
+            [batch_time, losses, top1],
+            prefix='Test: ')
 
-    # switch to evaluate mode
-    model.eval()
-    if args.per_class_eval:
-        confmat = ConfusionMatrix(len(args.class_names))
-    else:
-        confmat = None
+        # switch to evaluate mode
+        model.eval()
+        if args.per_class_eval:
+            confmat = ConfusionMatrix(len(args.class_names))
+        else:
+            confmat = None
 
-    with torch.no_grad():
-        end = time.time()
-        for i, (images, target) in enumerate(val_loader):
-            images = images.to(device)
-            target = target.to(device)
-
-            # compute output
-            output = model(images)
-            loss = F.cross_entropy(output, target)
-
-            # measure accuracy and record loss
-            acc1, = accuracy(output, target, topk=(1,))
-            if confmat:
-                confmat.update(target, output.argmax(1))
-            losses.update(loss.item(), images.size(0))
-            top1.update(acc1.item(), images.size(0))
-
-            # measure elapsed time
-            batch_time.update(time.time() - end)
+        with torch.no_grad():
             end = time.time()
+            for i, (images, target) in enumerate(val_loader):
+                images = images.to(device)
+                target = target.to(device)
 
-            if i % args.print_freq == 0:
-                progress.display(i)
+                # compute output
+                output = model(images)
+                loss = F.cross_entropy(output, target)
 
-        print(' * Acc@1 {top1.avg:.3f}'.format(top1=top1))
-        if confmat:
-            print(confmat.format(args.class_names))
+                # measure accuracy and record loss
+                acc1, = accuracy(output, target, topk=(1,))
+                if confmat:
+                    confmat.update(target, output.argmax(1))
+                losses.update(loss.item(), images.size(0))
+                top1.update(acc1.item(), images.size(0))
 
-    return top1.avg
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
+
+                if i % args.print_freq == 0:
+                    progress.display(i)
+
+            print(' * Acc@1 {top1.avg:.3f}'.format(top1=top1))
+            if confmat:
+                print(confmat.format(args.class_names))
+
+        return top1.avg
+    else:
+        # for WILDS dataset
+        assert hasattr(val_loader.dataset, "eval")
+        model.eval()
+        all_y_true = []
+        all_y_pred = []
+        all_metadata = []
+        with torch.no_grad():
+            # get predictions for the full test set
+            for x, y_true, metadata in tqdm.tqdm(val_loader):
+                x = x.to(device)
+                y_pred = model(x).argmax(1).cpu()
+                # accumulate y_true, y_pred, metadata
+                all_y_true.append(y_true)
+                all_y_pred.append(y_pred)
+                all_metadata.append(metadata)
+
+        # evaluate
+        results = val_loader.dataset.eval(collate_list(all_y_pred), collate_list(all_y_true),
+                                          collate_list(all_metadata))
+        print(results[1])
+        return results[0][args.metric]
+
+
+def collate_list(vec):
+    """
+    Adapted from https://github.com/p-lambda/wilds
+    If vec is a list of Tensors, it concatenates them all along the first dimension.
+
+    If vec is a list of lists, it joins these lists together, but does not attempt to
+    recursively collate. This allows each element of the list to be, e.g., its own dict.
+
+    If vec is a list of dicts (with the same keys in each dict), it returns a single dict
+    with the same keys. For each key, it recursively collates all entries in the list.
+    """
+    if not isinstance(vec, list):
+        raise TypeError("collate_list must take in a list")
+    elem = vec[0]
+    if torch.is_tensor(elem):
+        return torch.cat(vec)
+    elif isinstance(elem, list):
+        return [obj for sublist in vec for obj in sublist]
+    elif isinstance(elem, dict):
+        return {k: collate_list([d[k] for d in vec]) for k in elem}
+    else:
+        raise TypeError("Elements of the list to collate must be tensors or dicts.")
 
 
 def get_train_transform(resizing='default', random_horizontal_flip=True, random_color_jitter=False,

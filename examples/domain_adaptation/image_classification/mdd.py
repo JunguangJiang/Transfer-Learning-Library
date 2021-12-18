@@ -143,11 +143,10 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
     losses = AverageMeter('Loss', ':3.2f')
     trans_losses = AverageMeter('Trans Loss', ':3.2f')
     cls_accs = AverageMeter('Cls Acc', ':3.1f')
-    tgt_accs = AverageMeter('Tgt Acc', ':3.1f')
 
     progress = ProgressMeter(
         args.iters_per_epoch,
-        [batch_time, data_time, losses, trans_losses, cls_accs, tgt_accs],
+        [batch_time, data_time, losses, trans_losses, cls_accs],
         prefix="Epoch: [{}]".format(epoch))
 
     # switch to train mode
@@ -159,12 +158,11 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         optimizer.zero_grad()
 
         x_s, labels_s = next(train_source_iter)
-        x_t, labels_t = next(train_target_iter)
+        x_t, _ = next(train_target_iter)
 
         x_s = x_s.to(device)
         x_t = x_t.to(device)
         labels_s = labels_s.to(device)
-        labels_t = labels_t.to(device)
 
         # measure data loading time
         data_time.update(time.time() - end)
@@ -184,11 +182,9 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         classifier.step()
 
         cls_acc = accuracy(y_s, labels_s)[0]
-        tgt_acc = accuracy(y_t, labels_t)[0]
 
         losses.update(loss.item(), x_s.size(0))
         cls_accs.update(cls_acc.item(), x_s.size(0))
-        tgt_accs.update(tgt_acc.item(), x_t.size(0))
         trans_losses.update(transfer_loss.item(), x_s.size(0))
 
         # compute gradient and do SGD step
@@ -221,6 +217,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-hflip', action='store_true', help='no random horizontal flipping during training')
     parser.add_argument('--norm-mean', type=float, nargs='+', default=(0.485, 0.456, 0.406), help='normalization mean')
     parser.add_argument('--norm-std', type=float, nargs='+', default=(0.229, 0.224, 0.225), help='normalization std')
+    parser.add_argument('--metric', default='acc_avg', help='The evaluation metric')
     # model parameters
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                         choices=utils.get_model_names(),
